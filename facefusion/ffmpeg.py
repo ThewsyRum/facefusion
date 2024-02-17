@@ -1,45 +1,40 @@
 from typing import List, Optional
 import subprocess
-
 import facefusion.globals
 from facefusion import logger
 from facefusion.typing import OutputVideoPreset, Fps, AudioBuffer
 from facefusion.filesystem import get_temp_frames_pattern, get_temp_output_video_path
 
+def run_ffmpeg(args: List[str]) -> bool:
+    commands = ['ffmpeg', '-hide_banner', '-loglevel', 'error']
+    commands.extend(args)
+    try:
+        subprocess.run(commands, stderr=subprocess.DEVNULL, check=True)
+        return True
+    except subprocess.CalledProcessError as exception:
+        logger.debug(exception.stderr.decode().strip(), __name__.upper())
+        return False
 
-def run_ffmpeg(args : List[str]) -> bool:
-	commands = [ 'ffmpeg', '-hide_banner', '-loglevel', 'error' ]
-	commands.extend(args)
-	try:
-		subprocess.run(commands, stderr = subprocess.PIPE, check = True)
-		return True
-	except subprocess.CalledProcessError as exception:
-		logger.debug(exception.stderr.decode().strip(), __name__.upper())
-		return False
+def open_ffmpeg(args: List[str]) -> subprocess.Popen[bytes]:
+    commands = ['ffmpeg', '-hide_banner', '-loglevel', 'error']
+    commands.extend(args)
+    return subprocess.Popen(commands, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-
-def open_ffmpeg(args : List[str]) -> subprocess.Popen[bytes]:
-	commands = [ 'ffmpeg', '-hide_banner', '-loglevel', 'error' ]
-	commands.extend(args)
-	return subprocess.Popen(commands, stdin = subprocess.PIPE, stdout = subprocess.PIPE)
-
-
-def extract_frames(target_path : str, video_resolution : str, video_fps : Fps) -> bool:
-	temp_frame_compression = round(31 - (facefusion.globals.temp_frame_quality * 0.31))
-	trim_frame_start = facefusion.globals.trim_frame_start
-	trim_frame_end = facefusion.globals.trim_frame_end
-	temp_frames_pattern = get_temp_frames_pattern(target_path, '%04d')
-	commands = [ '-hwaccel', 'auto', '-i', target_path, '-q:v', str(temp_frame_compression), '-pix_fmt', 'rgb24' ]
-	if trim_frame_start is not None and trim_frame_end is not None:
-		commands.extend([ '-vf', 'trim=start_frame=' + str(trim_frame_start) + ':end_frame=' + str(trim_frame_end) + ',scale=' + str(video_resolution) + ',fps=' + str(video_fps) ])
-	elif trim_frame_start is not None:
-		commands.extend([ '-vf', 'trim=start_frame=' + str(trim_frame_start) + ',scale=' + str(video_resolution) + ',fps=' + str(video_fps) ])
-	elif trim_frame_end is not None:
-		commands.extend([ '-vf', 'trim=end_frame=' + str(trim_frame_end) + ',scale=' + str(video_resolution) + ',fps=' + str(video_fps) ])
-	else:
-		commands.extend([ '-vf', 'scale=' + str(video_resolution) + ',fps=' + str(video_fps) ])
-	commands.extend([ '-vsync', '0', temp_frames_pattern ])
-	return run_ffmpeg(commands)
+def extract_frames(target_path: str, video_resolution: str, video_fps: Fps) -> bool:
+    temp_frame_compression = round(31 - (facefusion.globals.temp_frame_quality * 0.31))
+    trim_frame_start = facefusion.globals.trim_frame_start
+    trim_frame_end = facefusion.globals.trim_frame_end
+    temp_frames_pattern = get_temp_frames_pattern(target_path, '%04d')
+    commands = ['-hwaccel', 'auto', '-i', target_path, '-q:v', str(temp_frame_compression), '-pix_fmt', 'rgb24']
+    filter_str = ''
+    if trim_frame_start is not None:
+        filter_str += f'trim=start_frame={trim_frame_start}:'
+    if trim_frame_end is not None:
+        filter_str += f'trim=end_frame={trim_frame_end}:'
+    filter_str += f'scale={video_resolution},fps={video_fps}'
+    commands.extend(['-vf', filter_str])
+    commands.extend(['-vsync', '0', temp_frames_pattern])
+    return run_ffmpeg(commands)
 
 
 def compress_image(output_path : str) -> bool:
